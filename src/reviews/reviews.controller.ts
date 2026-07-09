@@ -17,4 +17,10 @@ export class ReviewsController {
   list(@Param('dishId') dishId: string) {
     return this.service.findByDish(dishId);
   }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('me')
+  mine(@Request() req: any) {
+    return this.service.findByUser(req.user.id);
+  }
 }

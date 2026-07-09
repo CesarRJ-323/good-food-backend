@@ -28,4 +28,14 @@ export class ReviewsService {
       take: 20,
     });
   }
+
+  // Reseñas del usuario logueado (para "Historial de reseñas" en el frontend)
+  findByUser(userId: string) {
+    return this.prisma.review.findMany({
+      where: { userId },
+      include: { dish: { select: { name: true } } },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+  }
 }
