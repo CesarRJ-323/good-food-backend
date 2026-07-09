@@ -1,0 +1,134 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  passwordHash  String?
+  googleId      String?   @unique
+  name          String
+  provider      String    @default("email")
+  emailVerified Boolean   @default(false)
+  role          String    @default("user")
+  lastLogin     DateTime?
+  createdAt     DateTime  @default(now())
+
+  reviews          Review[]
+  reservations     Reservation[]
+  deliveryOrders   DeliveryOrder[]
+  sessions         Session[]
+  verificationCodes VerificationCode[]
+
+  @@index([email])
+}
+
+model VerificationCode {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  code      String
+  type      String   // "email_verification" | "password_reset"
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, type])
+  @@index([code])
+}
+
+model Session {
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokenHash String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model Dish {
+  id          String   @id @default(uuid())
+  name        String
+  category    String
+  price       Float
+  description String?
+  imageUrl    String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  reviews     Review[]
+  deliveryItems DeliveryOrderItem[]
+}
+
+model Review {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dishId    String
+  dish      Dish     @relation(fields: [dishId], references: [id], onDelete: Cascade)
+  rating    Int
+  comment   String?
+  createdAt DateTime @default(now())
+
+  @@unique([userId, dishId])
+  @@index([dishId])
+}
+
+model Reservation {
+  id              String    @id @default(uuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date            DateTime
+  time            String
+  guests          Int
+  specifications  String?
+  confirmed       Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+
+  @@index([userId, date])
+}
+
+model DeliveryOrder {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  address     String
+  paymentMethod String
+  total       Float
+  status      String   @default("pending")
+  note        String?
+  createdAt   DateTime @default(now())
+
+  items       DeliveryOrderItem[]
+}
+
+model DeliveryOrderItem {
+  id         String   @id @default(uuid())
+  orderId    String
+  order      DeliveryOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  dishId     String
+  dish       Dish     @relation(fields: [dishId], references: [id])
+  quantity   Int
+  unitPrice  Float
+
+  @@index([orderId])
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  action    String
+  ip        String?
+  userAgent String?
+  metadata  String?
+  createdAt DateTime @default(now())
+}
