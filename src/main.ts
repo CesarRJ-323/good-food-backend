@@ -50,6 +50,11 @@ async function bootstrap() {
             .split(',')
             .map((o: string) => o.trim())
             .filter(Boolean),
+          // Origen del propio backend (para llamadas fetch desde el frontend tunelizado)
+          ...(process.env.BACKEND_PUBLIC_URL ?? '')
+            .split(',')
+            .map((o: string) => o.trim())
+            .filter(Boolean),
         ],
         fontSrc: ["'self'", "data:"],
         frameAncestors: ["'none'"],

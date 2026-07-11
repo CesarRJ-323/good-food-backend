@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 
@@ -14,11 +14,18 @@ export class DeliveryService {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(userId: string, data: CreateOrderDto) {
+    // A03: Validar que TODOS los dishId existan y estén activos antes de crear.
+    // Si alguno no existe, devolver 400 en lugar de dejar que Prisma falle con 500 (FK).
+    const dishIds = data.items.map((x) => x.dishId);
     const dishes = await this.prisma.dish.findMany({
-      where: { id: { in: data.items.map((x) => x.dishId) }, active: true },
+      where: { id: { in: dishIds }, active: true },
       select: { id: true, price: true },
     });
     const prices = new Map(dishes.map((d) => [d.id, d.price]));
+    const missing = dishIds.filter((id) => !prices.has(id));
+    if (missing.length > 0) {
+      throw new BadRequestException(`Plato(s) inválidos o no disponibles: ${missing.join(', ')}`);
+    }
     let total = 0;
     for (const item of data.items) {
       const unit = prices.get(item.dishId) ?? 0;

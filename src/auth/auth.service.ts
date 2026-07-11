@@ -13,6 +13,16 @@ import { ChangePasswordDto } from './dto/change-password.dto';
 export class AuthService {
   private readonly logger = new Logger('AuthService');
 
+  // Select público de usuario (sin passwordHash) — reutilizado en varios métodos
+  private readonly userPublicSelect = {
+    id: true,
+    email: true,
+    name: true,
+    provider: true,
+    createdAt: true,
+    emailVerified: true,
+  } as const;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
@@ -56,7 +66,7 @@ export class AuthService {
     const passwordHash = await bcrypt.hash(dto.password, 12);
     const user = await this.prisma.user.create({
       data: { email: dto.email, passwordHash, name: dto.name, provider: 'email' },
-      select: { id: true, email: true, name: true, provider: true, createdAt: true, emailVerified: true },
+      select: this.userPublicSelect,
     });
 
     // Generar código de verificación
@@ -136,6 +146,11 @@ export class AuthService {
   }
 
   async login(dto: LoginDto, ip?: string) {
+    // A07: Email con formato inválido -> 404 genérico (no revela validación)
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(dto.email ?? '')) {
+      this.logger.warn(`Login fallido — email con formato inválido — IP: ${ip}`);
+      throw new NotFoundException('Credenciales inválidas.');
+    }
     const user = await this.prisma.user.findUnique({ where: { email: dto.email } });
     // A07: Mismo mensaje genérico para no revelar si el email existe
     if (!user?.passwordHash) {
@@ -173,7 +188,7 @@ export class AuthService {
   async me(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, email: true, name: true, provider: true, createdAt: true, emailVerified: true },
+      select: this.userPublicSelect,
     });
     if (!user) throw new NotFoundException('Usuario no encontrado.');
     return user;
@@ -212,7 +227,7 @@ export class AuthService {
     const user = await this.prisma.user.update({
       where: { id: userId },
       data: { name: dto.name },
-      select: { id: true, email: true, name: true, provider: true, emailVerified: true, createdAt: true },
+      select: this.userPublicSelect,
     });
     await this.auditLog(userId, 'PROFILE_UPDATED', ip);
     return user;
@@ -286,26 +301,14 @@ export class AuthService {
 
     const userId = payload.sub as string;
 
-    // A02: Buscar TODAS las sesiones activas del usuario y validar el hash
-    const sessions = await this.prisma.session.findMany({
-      where: { userId, expiresAt: { gt: new Date() } },
-      select: { id: true, refreshTokenHash: true },
-    });
-
-    let validSession = null;
-    for (const s of sessions) {
-      if (await bcrypt.compare(token, s.refreshTokenHash)) {
-        validSession = s;
-        break;
-      }
-    }
-
-    if (!validSession) {
+    // A02: Validar hash del token contra las sesiones activas del usuario
+    const tokenHash = await this.validateSessionToken(token, userId);
+    if (!tokenHash) {
       throw new UnauthorizedException('Sesión inválida o expirada.');
     }
 
     // Rotación: borrar la sesión vieja, crear nueva
-    await this.prisma.session.delete({ where: { id: validSession.id } }).catch(() => {});
+    await this.prisma.session.delete({ where: { id: tokenHash.id } }).catch(() => {});
 
     const newPayload = { sub: userId, email: payload.email };
     const accessToken = await this.jwt.signAsync(newPayload, {
@@ -329,6 +332,22 @@ export class AuthService {
     return { accessToken, refreshToken: newRefreshToken };
   }
 
+  // A02: Valida el hash del refresh token contra las sesiones activas del usuario.
+  // Devuelve la sesión válida (con su id) o null si no coincide ninguna.
+  private async validateSessionToken(token: string, userId: string) {
+    const sessions = await this.prisma.session.findMany({
+      where: { userId, expiresAt: { gt: new Date() } },
+      select: { id: true, refreshTokenHash: true },
+    });
+
+    for (const s of sessions) {
+      if (await bcrypt.compare(token, s.refreshTokenHash)) {
+        return s;
+      }
+    }
+    return null;
+  }
+
   async logoutByToken(token: string, ip?: string) {
     const refreshSecret = process.env.REFRESH_TOKEN_SECRET;
     if (!refreshSecret) return;
@@ -339,17 +358,10 @@ export class AuthService {
       if (!userId) return;
 
       // A02: Validar hash antes de borrar
-      const sessions = await this.prisma.session.findMany({
-        where: { userId, expiresAt: { gt: new Date() } },
-        select: { id: true, refreshTokenHash: true },
-      });
-
-      for (const s of sessions) {
-        if (await bcrypt.compare(token, s.refreshTokenHash)) {
-          await this.prisma.session.delete({ where: { id: s.id } }).catch(() => {});
-          await this.auditLog(userId, 'LOGOUT', ip);
-          break;
-        }
+      const validSession = await this.validateSessionToken(token, userId);
+      if (validSession) {
+        await this.prisma.session.delete({ where: { id: validSession.id } }).catch(() => {});
+        await this.auditLog(userId, 'LOGOUT', ip);
       }
     } catch {
       // Token inválido — nada que borrar
