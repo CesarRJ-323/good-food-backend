@@ -1,4 +1,4 @@
-import { Injectable, ConflictException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateReviewDto } from './dto/create-review.dto';
 
@@ -6,9 +6,21 @@ import { CreateReviewDto } from './dto/create-review.dto';
 export class ReviewsService {
   constructor(private readonly prisma: PrismaService) {}
 
+  // A06: Upsert — un usuario tiene una sola reseña por plato (@@unique en el
+  // schema). Si ya existe, la ACTUALIZA en lugar de rechazar con 409, para que
+  // pueda corregir/editar su reseña (comportamiento esperado en la demo).
   async create(userId: string, dto: CreateReviewDto) {
-    const exists = await this.prisma.review.findFirst({ where: { userId, dishId: dto.dishId } });
-    if (exists) throw new ConflictException('Ya dejaste una reseña para este plato.');
+    const existing = await this.prisma.review.findFirst({
+      where: { userId, dishId: dto.dishId },
+    });
+
+    if (existing) {
+      return this.prisma.review.update({
+        where: { id: existing.id },
+        data: { rating: dto.rating, comment: dto.comment },
+      });
+    }
+
     return this.prisma.review.create({
       data: {
         userId,

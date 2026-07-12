@@ -69,26 +69,31 @@ async function bootstrap() {
 
   app.use(express.json({ limit: '100kb' }));
 
-  // A05: CORS restrictivo — solo orígenes permitidos
+  // A05: CORS restrictivo — solo orígenes permitidos.
+  // Además de los orígenes explícitos del .env, se aceptan los túneles
+  // efímeros de Cloudflare (*.trycloudflare.com) para que la demo no se
+  // rompa cada vez que el túnel rota la URL pública.
   const envOrigins = process.env.CORS_ORIGIN || '';
   const allowedOrigins = envOrigins
     .split(',')
     .map((o: string) => o.trim())
     .filter(Boolean);
 
+  const isAllowedOrigin = (origin: string | undefined): boolean => {
+    if (!origin) return true; //_same-origin / peticiones sin Origin (curl, server-to-server)
+    if (allowedOrigins.includes(origin)) return true;
+    // Túneles efímeros de Cloudflare (frontend y backend vía trycloudflare)
+    if (/\.trycloudflare\.com$/.test(origin)) return true;
+    return false;
+  };
+
   if (allowedOrigins.length === 0) {
-    console.warn('CORS_ORIGIN vacío: CORS restrictivo activado, sin orígenes permitidos.');
+    console.warn('CORS_ORIGIN vacío: solo se permiten túneles *.trycloudflare.com y same-origin.');
   }
 
   app.use(cors({
       origin: (origin, callback) => {
-        if (allowedOrigins.length === 0) {
-          return callback(new Error('CORS_ORIGIN no configurado'));
-        }
-        if (!origin) {
-          return callback(null, true);
-        }
-        if (allowedOrigins.includes(origin)) {
+        if (isAllowedOrigin(origin)) {
           callback(null, true);
         } else {
           callback(new Error('Origin not allowed by CORS'));

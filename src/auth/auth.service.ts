@@ -63,21 +63,26 @@ export class AuthService {
   }
 
   async register(dto: RegisterDto, ip?: string) {
+    // Verificar si la credencial (email) ya está en uso
+    const existing = await this.prisma.user.findUnique({ where: { email: dto.email } });
+    if (existing) {
+      throw new BadRequestException('Esta credencial ya está en uso.');
+    }
+
     const passwordHash = await bcrypt.hash(dto.password, 12);
     const user = await this.prisma.user.create({
-      data: { email: dto.email, passwordHash, name: dto.name, provider: 'email' },
+      data: { email: dto.email, passwordHash, name: dto.name, provider: 'email', emailVerified: true },
       select: this.userPublicSelect,
     });
-
-    // Generar código de verificación
-    const code = await this.createVerificationCode(user.id, 'email_verification');
 
     await this.auditLog(user.id, 'REGISTER', ip);
     this.logger.log(`Nuevo registro userId=${user.id}`);
 
+    const tokens = await this.issueTokens(user.id, user.email);
     return {
       user,
-      message: 'Te enviamos un código de verificación. Ingresalo para activar tu cuenta.',
+      tokens,
+      message: 'Cuenta creada correctamente.',
     };
   }
 
