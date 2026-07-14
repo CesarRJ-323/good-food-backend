@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateReviewDto } from './dto/create-review.dto';
 
@@ -10,6 +10,17 @@ export class ReviewsService {
   // schema). Si ya existe, la ACTUALIZA en lugar de rechazar con 409, para que
   // pueda corregir/editar su reseña (comportamiento esperado en la demo).
   async create(userId: string, dto: CreateReviewDto) {
+    // A03: Validar que el plato exista antes de crear la reseña. Sin esto,
+    // un dishId inexistente hace que Prisma falle con error de FK -> 500.
+    // Devolvemos 400 limpio en su lugar.
+    const dish = await this.prisma.dish.findUnique({
+      where: { id: dto.dishId },
+      select: { id: true },
+    });
+    if (!dish) {
+      throw new BadRequestException('El plato indicado no existe.');
+    }
+
     const existing = await this.prisma.review.findFirst({
       where: { userId, dishId: dto.dishId },
     });
