@@ -110,7 +110,7 @@ async function bootstrap() {
   app.setGlobalPrefix('api');
 
   // A05: CSRF cookie + header para requests mutantes (solo métodos no seguros)
-  const noCsrfPaths = /^\/api\/(auth\/(login|resend-verification)|delivery\/orders|reservations)$/;
+  const noCsrfPaths = /^\/api\/(auth\/(login|resend-verification)|delivery\/orders|reservations|reviews)$/;
   app.use((req: any, res: any, next: any) => {
     // Métodos seguros y rutas excluidas no requieren token CSRF
     if (['GET', 'HEAD', 'OPTIONS'].includes(req.method) || noCsrfPaths.test(req.url || '')) {
